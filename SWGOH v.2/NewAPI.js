@@ -12,8 +12,8 @@ function onOpen() {
 }
 // clears out previous guild contents for a full refresh, if new data has fewer rows than the last update some will remain, use this to clean it up.
 function gClearData() {
-  ss.getSheetByName("CharCopy").getRange("A2:K").clearContent();
-  ss.getSheetByName("GChars").getRange("A2:K").clearContent();
+  ss.getSheetByName("CharCopy").getRange("A2:L").clearContent();
+  ss.getSheetByName("GChars").getRange("A2:L").clearContent();
   ss.getSheetByName("GShips").getRange("A2:F").clearContent();
 }
 // clears out previous opponent contents for a full refresh, if new data has fewer rows than the last update some will remain, use this to clean it up.
@@ -46,16 +46,17 @@ function gData() {
   var guildInfo = JSON.parse(UrlFetchApp.fetch("https://swgoh.gg/api/guild/"+getGuildID(guildLink)+"/"));
   
   // fill GP sheet with guild data
-  fillsheet('GP', setupGP(guildInfo), 2, 1);
+  // [plyrName], [totalGP], [charGP], [shipGP], [zetaCount]
+  fillsheet('GP', setupGP(guildInfo)[1], 2, 1);
 
   // fill CharCopy with guildInfo so it doesn't cause all of the formulas to break the sheet
   // [Character Name] [Player Name] [Power] [gpPercent] [Stars] [G.L.] [Level] [Zeta1] [Zeta2] [Zeta3] [Zeta4] [Zeta5]
   fillsheet('CharCopy', setupChars(allCharInfo, guildInfo), 2, 1);
 
-  // fill GShips with guildInfo, last time I did this it didn't time out so should be okay
+  // fill GShips with guildInfo
+  // [Ship Name] [Pyaler Name] [Power] [gpPercent] [Stars] [Level]
   fillsheet('GShips', setupShips(allShipInfo, guildInfo), 2, 1);
 }
-
 // opponent data function
 function oData() {
   // get the current character set from swgoh.gg
@@ -70,6 +71,9 @@ function oData() {
   // get the opponents data from swgoh.gg/api
   var oppInfo = JSON.parse(UrlFetchApp.fetch("https://swgoh.gg/api/guild/"+getGuildID(oppLink)+"/")); 
 
+  // fill UST V1-50 with opponent names
+  fillsheet('UST', setupGP(oppInfo)[0], 1, 22);
+
   // fill OChars with oppInfo
   // [Character Name] [Player Name] [Power] [gpPercent] [Stars] [G.L.] [Level] [Zeta1] [Zeta2] [Zeta3] [Zeta4] [Zeta5]  
   fillsheet('OChars', setupChars(allCharInfo, oppInfo), 2, 1);
@@ -78,16 +82,20 @@ function oData() {
   // [Ship Name] [Pyaler Name] [Power] [gpPercent] [Stars] [Level]
   fillsheet('OShips', setupShips(allShipInfo, oppInfo), 2, 1); 
 }
-
-
-// takes in a json obj and return an array with [plyrName], [totalGP], [charGP], [shipGP], [zetaCount]
+// takes in a json obj and return a 2d array with [0] = [plyrName] &  [plyrName], [totalGP], [charGP], [shipGP], [zetaCount]
 function setupGP(guildInfo) {
+    // container for both Name and Data arrays
+    var plyrContnr = [];
+    // collect player names
+    var plyrNames = [];
     // collect player data
     var plyrStats = [];
     // temp var for zeta counts per player
     var zetaCntr = 0
     // get each players info and their zeta counts
     for (var plyr in guildInfo['players']) {
+      // add player names to array, guildInfo['players'][plyr]['data']['name']
+      plyrNames.push([guildInfo['players'][plyr]['data']['name']]);
       
       // count up the zetas
       for (var plyrUnit in guildInfo['players'][plyr]['units']) {
@@ -97,22 +105,27 @@ function setupGP(guildInfo) {
       // finish plyrStats array format [plyrName], [totalGP], [charGP], [shipGP], [zetaCount]
       plyrStats.push([guildInfo['players'][plyr]['data']['name'], guildInfo['players'][plyr]['data']['galactic_power'], guildInfo['players'][plyr]['data']['character_galactic_power'], guildInfo['players'][plyr]['data']['ship_galactic_power'], zetaCntr]);
       zetaCntr = 0;
+    }    
+    // make sure both arrays have 50 entries even if blank to overide previous items in the cells
+    while (plyrNames.length < 50) {
+      plyrNames.push([""]);
     }
-    
-    // make sure player array has 50 entries even if blank to overide previous items in the cells
     while (plyrStats.length < 50) {
       plyrStats.push(["","","","",""]);
     }
 
-    return plyrStats
+    // add both arrays to our container [0] = Names, [1] = Stats
+    plyrContnr.push(plyrNames);
+    plyrContnr.push(plyrStats);
+
+    return plyrContnr
 }
-
-
-// refactored GChars page, need to figure out GP percentage now with relics, pull the base stats for characters from api and check it out.
-// for reuse needs to input a string name for the worksheet it needs to be dumped in, unless we call that in the print which uses the array returned from this function, probably better, although I dunno, probably cleaner to include worksheet name in call
+// refactored GChars page, need to figure out GP percentage now with relics, pull the base stats for characters from api and check it out. Base line with mods per relic tiers?
 function setupChars(allCharInfo, guildInfo) {
   // setup container array
   gCharContnr = []
+  // lead ability tracker
+  leadContnr = []
   // adds guild data, guildInfo, to array for every character in the game, allCharInfo
   for (var char in allCharInfo) {
     for (var plyr in guildInfo.players) {
@@ -120,20 +133,34 @@ function setupChars(allCharInfo, guildInfo) {
       for (var pUnit in guildInfo.players[plyr].units) {
         // GP percentage is based off of G13 power and if it = 100 than swap to Relic tier
         // I would prefer that this be the case but the value returned from the API is a representation of R13 & 6dot mods, so leaving it as a simple %
-        // if the player's unit name matches our current search set the gpPercentage and break out of the loop?
+        // if the player's unit name matches our current search set the gpPercentage and break out of the loop
         if (guildInfo.players[plyr].units[pUnit].data.name == allCharInfo[char].name) {
-          Logger.log(guildInfo.players[plyr].units[pUnit].data.name + "  " + allCharInfo[char].name);
           var gpPercent = (guildInfo.players[plyr].units[pUnit].data.power / allCharInfo[char].power).toFixed(5);
-          Logger.log(gpPercent);
-          // need to figure out what zetas to add, and append them to our push may need to wrap each one in a conditional inside the push???
-          // push leader zetas to the front?
-          // names are in the list, if is_zeta true then add name to list, normalize list with empty values to 5, add each to push, used to be handled seperately
-          // can also use "zeta_abilities", and pull each name based on ID, no too many loops on for z_abilities and one for each ability to find match.
+
+          // if is_zeta true then add name to list, normalize list with empty values to 5, add each to push, used to be handled seperately
           // create zeta container
           zetaContnr = [];
           for (var charAbility in guildInfo.players[plyr].units[pUnit].data.ability_data) {
             if (guildInfo.players[plyr].units[pUnit].data.ability_data[charAbility].is_zeta == true) {
               zetaContnr.push(guildInfo.players[plyr].units[pUnit].data.ability_data[charAbility].name);
+            }
+            // also check for lead abilities for the Leads tab
+            if ((guildInfo.players[plyr].units[pUnit].data.ability_data[charAbility].id).indexOf("leaderskill") > -1) {
+              // add check for unique values
+              var leadChkr = 0;
+              if (leadContnr.length == 0) {
+                leadContnr.push([ guildInfo.players[plyr].units[pUnit].data.ability_data[charAbility].name ]);
+              } else {
+                for (var leadAbility in leadContnr) {
+                  if (leadContnr[leadAbility][0].indexOf(guildInfo.players[plyr].units[pUnit].data.ability_data[charAbility].name) > -1) {
+                    leadChkr = 1
+                  }
+                }
+                if (leadChkr == 0) {
+                  leadContnr.push([ guildInfo.players[plyr].units[pUnit].data.ability_data[charAbility].name ]);
+                }
+              }
+              
             }
           }
 
@@ -143,7 +170,6 @@ function setupChars(allCharInfo, guildInfo) {
               zetaContnr.push("");
             }
           }
-          Logger.log(zetaContnr);
           
           // probably need to push in all values here after gpPercent is set
           gCharContnr.push( [ allCharInfo[char].name, guildInfo.players[plyr].data.name, guildInfo.players[plyr].units[pUnit].data.power, gpPercent, guildInfo.players[plyr].units[pUnit].data.rarity, guildInfo.players[plyr].units[pUnit].data.gear_level, guildInfo.players[plyr].units[pUnit].data.level, zetaContnr[0], zetaContnr[1], zetaContnr[2], zetaContnr[3], zetaContnr[4] ] );
@@ -151,19 +177,15 @@ function setupChars(allCharInfo, guildInfo) {
           break;
         }
       }
-      /* Not sure why this was here
-      if (plyrArray.indexOf(gunits[charList[char]['base_id']][plyr].player) === -1) {
-        plyrArray.push(gunits[charList[char]['base_id']][plyr].player);
-      }
-       */
     }
   }
+  // fill in the lead abilities since we're not returning it in our variable
+  fillsheet('Leads', leadContnr, 1, 1);
+
   return gCharContnr;
 }
-
 // now we need all the ship data, pretty much the same thing as Chars with some differences in the amount of data available
 // [Ship Name], [Player Name], [Power], [gpPercent], [Stars], [Level]
-
 function setupShips(allShipInfo, guildInfo) {
   // setup container array
   gShipContnr = []
@@ -172,23 +194,17 @@ function setupShips(allShipInfo, guildInfo) {
     for (var plyr in guildInfo.players) {
       // need another level for every character in a player
       for (var pUnit in guildInfo.players[plyr].units) {
-        // GP percentage is based off of G13 power and if it = 100 than swap to Relic tier
-        // I would prefer that this be the case but the value returned from the API is a representation of R13 & 6dot mods, so leaving it as a simple %
-        // if the player's unit name matches our current search set the gpPercentage and break out of the loop?
+        // The value returned from the API for GP is a representation of R13 & 6dot mods, so leaving it as a simple %
+        // if the player's unit name matches our current search set the gpPercentage and break out of the loop
         if (guildInfo.players[plyr].units[pUnit].data.base_id == allShipInfo[ship].base_id) {
           var gpPercent = (guildInfo.players[plyr].units[pUnit].data.power / allShipInfo[ship].power).toFixed(5);
 
-          // probably need to push in all values here after gpPercent is set
+          // need to push in all values here after gpPercent is set
           gShipContnr.push( [ allShipInfo[ship].name, guildInfo.players[plyr].data.name, guildInfo.players[plyr].units[pUnit].data.power, gpPercent, guildInfo.players[plyr].units[pUnit].data.rarity, guildInfo.players[plyr].units[pUnit].data.level ] );
           // move on to next player
           break;
         }
       }
-      /* Not sure why this was here
-      if (plyrArray.indexOf(gunits[charList[char]['base_id']][plyr].player) === -1) {
-        plyrArray.push(gunits[charList[char]['base_id']][plyr].player);
-      }
-       */
     }
   }
   return gShipContnr;
