@@ -123,22 +123,21 @@ function teamGenerator() {
     var userShTeams = ss.getSheetByName("Setup").getRange(24, 2, 10, 8).getValues();
     var oppChTeams = ss.getSheetByName("Setup").getRange(36, 2, 4, 5).getValues();
     var oppShTeams = ss.getSheetByName("Setup").getRange(41, 2, 4, 8).getValues();
+    // all possible Char and Ship Names
+    fillSheet('Data', allNames(allCharInfo), 1, 1);
+    fillSheet('Data', allNames(allShipInfo), 1, 2);
     // need to make sure dictionaries exist before running code, error on .players if null
     if (guildDics.userGuild) {
         fillSheet('Data', teamsCalc(userChTeams, guildDics.userGuild, 'characters'), 1, 3);
-        fillSheet('Data', teamsCalc(userShTeams, guildDics.userGuild, 'ships'), 1, 12);
+        fillSheet('Data', teamsCalc(userShTeams, guildDics.userGuild, 'ships'), 1, 17);
         // fill GP sheet with guild data
         // [plyrName], [totalGP], [charGP], [shipGP], [zetaCount]
         fillSheet('GP', setupGP(guildDics.userGuild), 2, 1);
     }
     if (guildDics.oppGuild) {
-        fillSheet('Data', teamsCalc(oppChTeams, guildDics.oppGuild, 'characters'), 1, 24);
-        fillSheet('Data', teamsCalc(oppShTeams, guildDics.oppGuild, 'ships'), 1, 33);
+        fillSheet('Data', teamsCalc(oppChTeams, guildDics.oppGuild, 'characters'), 1, 29);
+        fillSheet('Data', teamsCalc(oppShTeams, guildDics.oppGuild, 'ships'), 1, 43);
     }
-    // all possible Char Names
-    fillSheet('Data', allNames(allCharInfo), 1, 1);
-    // all possible Ship Names
-    fillSheet('Data', allNames(allShipInfo), 1, 2);
 }
 
 function teamsCalc(teamList, guildInfo, unitType) {
@@ -148,40 +147,56 @@ function teamsCalc(teamList, guildInfo, unitType) {
     var info = {};
     // for all teams entered find all 50 players unit information
     for (var team of teamList) {
-        // check if team[0] == '' else push all '' into gDataPush
-        if (team[0] != '') {
+        // check if team[0] == '' if so push all '' into gDataPush for the team, since nothing was entered
+        if (team[0] == '') {
+            // enter blank data for teams that don't have a leader, assumes the rest of members are also absent, 9 por characters, 12 for ships
+            if (unitType === 'characters') {
+                for (var i = 0; i < 50; ++i) {
+                    gDataPush.push(['', '', '', '', '', '', '', '', '', '', '', '', '', '']);
+                }
+            } else {
+                for (var i = 0; i < 50; ++i) {
+                    gDataPush.push(['', '', '', '', '', '', '', '', '', '', '', '']);
+                }
+            }
+        } else {
             for (var plyr of guildInfo.players) {
                 info['plyrName'] = plyr.data.name;
                 // init value for leadership zeta, and GL ult
                 info['lz'] = '';
                 info['glU'] = '';
                 for (var char in team) {
-                    // set default value for the char, so if the player doesn't have them it will be blank
+                    // set default values for the char, so if the player doesn't have them it won't use previous values
                     info['u' + char] = 0;
+                    info['zo' + char] = 0;
                     // confirm the unit's name was entered, else set it's info value to ''
                     if (team[char] === '') {
                         info['u' + char] = '';
+                        info['zo' + char] = '';
                     } else {
                         // find the matching unit from player's units
                         for (var unit of plyr.units) {
                             if (team[char] === unit.data.name) {
-                                // grab the length of zeta abilities for this char, needs to be in another array of arrays for container[1]
-                                // check for leadership zeta
-                                for (var i = 0; char == 0 && i < unit.data.ability_data.length; ++i) {
-                                    if (unit.data.ability_data[i].id.includes('leaderskill') && unit.data.ability_data[i].is_zeta) {
-                                        info['lz'] = "✔";
-                                        break;
-                                    }
-                                }
-                                // check for GL and Ult .data.has_ultimate T/F
-                                if (unit.data.has_ultimate) {
-                                    info['glU'] = "✔";
-                                }
-                                // add zeta counter here, return list of 2 items 2nd being zeta?
                                 // check if the unitType is characters else ships, set allData to appropriate info
                                 var allData;
+                                // also run things dependant on chars
                                 if (unitType === 'characters') {
                                     allData = allCharInfo;
+                                    // set initial value for zo, zeta omicron
+                                    info['zo' + char] = unit.data.zeta_abilities.length;
+                                    // check for leadership zeta, and check if an ability is an omicron
+                                    for (var i = 0; char == 0 && i < unit.data.ability_data.length; ++i) {
+                                        if (unit.data.ability_data[i].id.includes('leaderskill') && unit.data.ability_data[i].has_zeta_learned) {
+                                            info['lz'] = "✔";
+                                        }
+                                        if (unit.data.ability_data[i].has_omicron_learned) {
+                                            info['zo' + char] = 'o';
+                                        }
+                                    }
+                                    // check for GL and Ult .data.has_ultimate T/F
+                                    if (unit.data.has_ultimate) {
+                                        info['glU'] = "✔";
+                                    }
                                 } else {
                                     allData = allShipInfo;
                                 }
@@ -208,7 +223,12 @@ function teamsCalc(teamList, guildInfo, unitType) {
                         info.u1,
                         info.u2,
                         info.u3,
-                        info.u4
+                        info.u4,
+                        info.zo0,
+                        info.zo1,
+                        info.zo2,
+                        info.zo3,
+                        info.zo4,
                     ])
                 } else {
                     gDataPush.push([
@@ -227,23 +247,12 @@ function teamsCalc(teamList, guildInfo, unitType) {
                     ])
                 }
             }
-        } else {
-            // enter blank data for teams that don't have a leader, assumes the rest of members are also absent, 9 por characters, 12 for ships
-            if (unitType === 'characters') {
-                for (var i = 0; i < 50; ++i) {
-                    gDataPush.push(['', '', '', '', '', '', '', '', '']);
-                }
-            } else {
-                for (var i = 0; i < 50; ++i) {
-                    gDataPush.push(['', '', '', '', '', '', '', '', '', '', '', '']);
-                }
-            }
         }
         // if gDataPush % 50 add rows till it is to ensure correct placement of new teams for guilds with < 50 members
         if (gDataPush.length % 50) {
             if (unitType === 'characters') {
                 for (var i = gDataPush.length; i % 50; ++i) {
-                    gDataPush.push(['', '', '', '', '', '', '', '', '']);
+                    gDataPush.push(['', '', '', '', '', '', '', '', '', '', '', '', '', '']);
                 }
             } else {
                 for (var i = gDataPush.length; i % 50; ++i) {
